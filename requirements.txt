@@ -1,0 +1,3 @@
+# Both optional - the scripts run on the standard library alone.
+dnspython>=2.0    # real DNS queries + CNAME chains
+tldextract>=3.0   # exact registered-domain lookups (co.uk, com.au, ...)
