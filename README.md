@@ -1,11 +1,14 @@
 # pointback
 
-Find the hostnames that point back into your IP scope.
+Find the hostnames that *point back* into your scope list of IPs.
 
-On an external pentest the client usually hands you IP ranges, but the interesting stuff is often only reachable by name: virtual hosts, SNI-routed apps, a login portal that 404s on the bare IP.
+On an external pentest you can expect to receive a list of IP addresses as your scope, but sometimes the interesting stuff is only reachable by domain name: virtual hosts, SNI-routed apps, a login portal that 404s on the bare IP.
 
-Reverse DNS won't get you those names. PTR records are set by whoever owns the netblock (often the ISP or cloud provider), and an IP usually has at most one, while dozens of names can point at it. pointback goes the other way: enumerate names, resolve them forward, and keep the ones that land in scope.
+Reverse DNS won't often get you those domain names. PTR (pointer) records are set by whoever owns the netblock (often the ISP or cloud provider), and an IP usually has at most one, even though dozens of names may be pointing at that IP. That's why an nslookup against an IP might return a hostname that looks like `ec2-x-xx-xx-x.compute-1.amazonaws.com`.
 
+These **pointback** tools go the other way: enumerate domain names, do forward DNS lookups, and correlate the results to your scope list.
+
+Basic flow:
 ```
 subfinder / amass  ->  domainmap.py  ->  scopematch.py
  (find subdomains)     (DNS + owner)     (match against scope)
@@ -27,15 +30,16 @@ You end up with a list of hostnames that resolve into your scope, plus everythin
 
 ## Install
 
-Python 3.8+, no required dependencies. Two optional extras make the results better:
+Python 3.8+, no required dependencies, although two optional extras make the results better.
 
 ```
+git clone https://github.com/kampji/pointback.git ~/pointback
 pip install -r requirements.txt   # dnspython (CNAME chains), tldextract (accurate apex domains)
 ```
 
 Keep `domainmap.py` and `scopematch.py` in the same folder. `scopematch` borrows the resolver from `domainmap`.
 
-## Quick start
+## Basic methodology
 
 ```bash
 # 1. find subdomains
@@ -48,16 +52,17 @@ python3 domainmap.py -iL subs.txt --json dm.json
 python3 scopematch.py --from-json dm.json -s scope.txt --hosts-out targets.txt
 ```
 
-Short on time? Skip step 2. `scopematch` resolves names itself (you just won't get owner/ASN info):
+Want a one-liner? Skip step 2. `scopematch` resolves names itself (you just won't get owner/ASN info):
 
 ```bash
 subfinder -d client.com -silent | python3 scopematch.py -iL - -s scope.txt
 ```
 
-## domainmap.py: resolve and attribute
+## domainmap.py: Find domains' IPs and ownership info
 
-For each domain it pulls A/AAAA records (plus the CNAME chain, if dnspython is installed), then for each IP the owning org and netblock (RDAP), the ASN and BGP prefix (Team Cymru), and the registrar and nameservers of the parent domain. Output is laid out like nmap's.
+For each domain it pulls A/AAAA records (plus the CNAME chain, if dnspython is installed), then for each IP it pulls the owning org and netblock (RDAP), the ASN and BGP prefix (Team Cymru), and the registrar and nameservers of the parent domain. Output is laid out like nmap's (hence the name, domainmap.py).
 
+Example output:
 ```
 domainmap report for app.client.com
 CNAME chain: client.azurewebsites.net
@@ -75,7 +80,9 @@ Useful flags:
 - `--no-owner` and `--no-domain` skip the RDAP/ASN lookups (faster, quieter)
 - `-v` shows extra per-IP detail: abuse contact, RIR, PTR
 
-## scopematch.py: sort domains by scope
+## scopematch.py: Correlate which domains are in your scope
+
+After you've enumerated domains and run domainmap.py, use scopematch.py to correlate discovered domains to the IPs in your scope list. 
 
 Every domain lands in one of four buckets:
 
@@ -84,7 +91,7 @@ Every domain lands in one of four buckets:
 - **OUT OF SCOPE**: resolves, but nothing is in scope
 - **NO DNS**: doesn't resolve (NXDOMAIN, timeout, no A/AAAA)
 
-It also lists **scope IPs that no domain resolved to**, i.e. hosts you haven't found a name for yet.
+It also lists **scope IPs that no domain resolved to**, i.e. IPs you haven't found a domain name for yet.
 
 The scope file takes one or more entries per line, with `#` comments allowed:
 
